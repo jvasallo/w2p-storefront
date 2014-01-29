@@ -1,0 +1,362 @@
+{{response.files.append(URL(r=request,c='static',f='style.css'))}}
+{{response.files.append(URL('static','js/jquery-ui.min.js'))}} 
+{{extend 'layout.html'}}
+
+<div class="cart-zone">
+	<p>Drag to Add</p>
+</div>
+<div class="side-zone">
+</div>
+<div id="search-nav" class="navbar">
+	<div class="navbar-inner">
+		<form class="navbar-search pull-left">
+  			<input type="text" class="search-query" placeholder="Search by Product Name, Seller, or Description.">
+		</form>
+    </div>
+</div>
+<hr>
+<div class="row-fluid">
+	<div id="shop-window" class="span9">
+    </div>
+    <div id="shop-cart" class="span3">        
+        <h4 id="cart-summary"><i class="icon-barcode"></i> Your Shopping Cart</h4>
+        <div id="cart"></div>
+        
+        <hr>
+        
+        <div id="cart-total">
+            <h2>Cart Total</h2>
+            <div class="input-prepend">
+            	<span class="add-on">$</span>
+                <input class="span5" id="cart-total-amount" value="0.00" readonly>
+            </div>
+        </div>
+        
+        <hr>
+
+        <div id="checkout-area" style="display: none;">
+        	<h4><i class="icon-shopping-cart"></i> Secure Checkout</h4>
+        	<script type="text/javascript" src="https://js.stripe.com/v2/"></script>
+        	<div id="checkout-form" style="display: none;">
+	        	<form id="CardForm">
+    	        	<div class="control-group">
+    	        		<label>Cardholder Name</label>
+        	    		<input id="CardName">
+                        <span class="help-inline"></span>
+                    </div>
+                    
+                    <div class="control-group">
+    	        		<label>Address</label>
+        	    		<input id="address">
+                        <span class="help-inline"></span>
+                    </div>
+                    
+                    <div class="control-group">
+    	        		<label>City</label>
+        	    		<input id="city">
+                        <span class="help-inline"></span>
+                    </div>
+                    
+                   	<div class="control-group">
+    	        		<label>State</label>
+        	    		<input id="state">
+                        <span class="help-inline"></span>
+                    </div>
+                    
+                   	<div class="control-group">
+    	        		<label>Zip Code</label>
+        	    		<input id="zip">
+                        <span class="help-inline"></span>
+                    </div>
+                        
+            		<div id="div-card" class="control-group">
+	            		<label>Card Number</label>
+    	        		<input id="CardNumber" placeholder="4242424242424242"/>
+            	    	<span id="span-card" class="help-inline"></span>
+            	    </div>
+            	    
+            	    <div id="div-exp" class="control-group">
+        	    		<label>Expiration</label>
+            			<input id="CardExpiration" placeholder="12/2013"/>
+                    	<span id="span-exp" class="help-inline"></span>
+                    </div>
+                    
+                    <div id="div-cvc" class="control-group">
+    	        		<label>CVC Code</label>
+	            		<input id="CardCVC" placeholder="123"/>
+                    	<span id="span-cvc" class="help-inline"></span>
+                    </div>
+                    
+        	    	<div class="form-actions">
+        	    		<button type="submit" class="btn btn-primary">Submit</button>
+                    </div>
+				</form>
+    	    </div>
+            <div id="processing" style="display: none;">
+        		<img src="../static/images/processing.gif" />
+                <span id="processing-info"></span>
+            </div>
+        	<button id="checkout-button" class="btn btn-large btn-block btn-primary">Proceed To Checkout</button>
+        	<hr>
+        </div>
+    </div>
+</div>
+
+<script>
+    ////////////////////////////////////////////////
+    //               BEGIN Stripe.js              //
+    ////////////////////////////////////////////////
+    // Set Stripe public Key for testing.
+	Stripe.setPublishableKey('pk_test_2ZMQxfzB4G63gbwOAne2WVi2');
+  	
+    // global cart and products variables
+  	var cart = {};
+    var shipping = {'address': '', 'city': '', 'state': '', 'zip': ''};
+    var products = [
+        {product_code:'0001', product_name:'Learn Python 6th Edition', product_price:21.99, product_owner: 'Mark Pilgrim',
+         description:'Learn how to program in Python with the latest revision 3.3.2! Learn how to port 2.7 programs to the latest release!', 
+         image:'../static/images/python-6th-edition.jpg'},
+        {product_code:'0002', product_name:'Python Web Frameworks 2nd Edition', product_price:25.99, product_owner: 'Steve Holden',
+         description:'Learn about popular development frameworks such as Web2py and Django! Practice with live tutorials and demos!', 
+         image:'../static/images/python-frameworks-2nd-edition.jpg'},
+        {product_code:'0003', product_name:'Raspberry Pi', product_price:35.99, product_owner: 'Raspberry Pi Foundation',
+         description:'The Raspberry Pi is a credit-card sized computer that plugs into your TV and a keyboard. It’s a capable little PC which can be used by all over the world to learn programming.',
+         image:'../static/images/raspberry-pi.jpg'},
+        {product_code:'0004', product_name:'MK320 Mouse and Keyboard Bundle', product_price:25.99, product_owner: 'Logitech',
+         description:'The Logitech Wireless MK320 comes with a comfortable keyboard and a carry-around mouse, 2.4 ghz wireless, which has long range and reliable connection.',
+         image:'../static/images/mouse-keyboard.jpg'}
+ 	  ]
+ 	  
+	function processing() {
+        show_payment();
+        if (jQuery("#processing").css('display') == 'none') {
+        	jQuery("#processing").css('display', 'block');
+        }
+        else {
+        	jQuery("#processing").css('display', 'none');
+        }
+    }
+    
+    function validate() {
+    	var errorCount = 0;
+        processing();
+        // validate against empty fields
+        jQuery("#CardForm input").each(function(){
+        	if (jQuery.trim(jQuery(this).val()).length == 0) {
+           		var div = jQuery(this).parent("div")
+        		div.addClass('error');
+        		div.find('span').html("Field can't be empty!");
+            	errorCount += 1;
+        	}	
+    	});
+    	
+        // validate card number
+        var cardnumber = jQuery('#CardNumber').val();
+       	var cardval = Stripe.card.validateCardNumber(cardnumber);
+        if (!cardval) {
+        	errorCount += 1;
+        	jQuery('#div-card').addClass("error");
+        	jQuery('#span-card').html("Invalid Card Number!");
+        }
+        
+        // validate expiration date
+    	var expiration = jQuery('#CardExpiration').val().split("/");
+        if (expiration.length == 2) {
+    		var expval = Stripe.card.validateExpiry(parseInt(expiration[0]), parseInt(expiration[1]))
+            if (!expval) {
+            	errorCount += 1;
+            	jQuery('#div-exp').addClass("error");
+        		jQuery('#span-exp').html("Invalid Expiration Date!");
+            }
+        }
+        else {
+        	errorCount += 1;
+        	jQuery('#div-exp').addClass("error");
+        	jQuery('#span-exp').html("Invalid Expiration Date!");
+        }
+        
+        // validate cvc
+        var cvcnumber = jQuery('#CardCVC').val();
+       	var cvcval = Stripe.card.validateCVC(cvcnumber);
+        if (!cvcval) {
+        	errorCount += 1;
+        	jQuery('#div-cvc').addClass("error");
+        	jQuery('#span-cvc').html("Invalid CVC!");
+        }
+        
+        // if there are no errors process the payment
+        if (errorCount == 0) {
+            // update shipping info
+            shipping['address'] = jQuery('#address').val();
+            shipping['city'] = jQuery('#city').val();
+            shipping['state'] = jQuery('#state').val();
+            shipping['zip'] = jQuery('#zip').val();
+            
+            // create stripe payment token
+           	Stripe.createToken({
+      			number: cardnumber,
+      			cvc: cvcnumber,
+      			exp_month: parseInt(expiration[0]),
+      			exp_year: parseInt(expiration[1]),
+    			}, stripeResponseHandler);
+        }
+        else {
+        	processing();
+        }
+        return false;
+    }
+  	
+	function stripeResponseHandler(status, response) {
+    	if (response.error) {
+        	alert(response.error);
+    	} 
+        else {
+        	var token = response['id'];
+            jQuery('#processing-info').html("Token:" + token);
+            setTimeout(function() { 
+            	jQuery.post('./callback', {'token': token, 'shipping': JSON.stringify(shipping), 'cart': JSON.stringify(cart)}, responseFromServerTokenCall);
+            }, 3000);   
+    	}
+  	};
+    
+    function responseFromServerTokenCall(data, textStatus, jqXHR) {
+    	jQuery('#processing-info').html('Server Response OK');
+		setTimeout(function() { 
+       	    alert('Payment Recieved! Please allow 5-10 Business Days!');
+       	    processing();
+       	    cart = {};
+        	show_cart();
+       	}, 3000);
+    }
+    
+    /////////////////////////////////////////////////
+    //           BEGIN CART PROCESSING             //
+    /////////////////////////////////////////////////      
+	function add_to_cart(code) {
+        if(!cart[code]) {
+        	cart[code] = 1; 
+        }
+        else {
+        	cart[code] += 1; 
+        }
+        show_cart();
+    }; 
+    
+    function decrease_count(code) {
+        cart[code]--;
+    	show_cart();
+    }
+    
+    function del_from_cart(code) {
+        delete cart[code]; 
+        show_cart();
+    };
+    
+    function show_cart() {	    
+    	var div = jQuery('#cart');
+        table = jQuery('<table/>')
+        div.html(table);
+        var grandTotal = 0.0;
+        var totalQuantity = 0;
+        for(var i=0; i<products.length; i++) {
+        	var product = products[i];
+            var quantity = cart[product.product_code];
+            if(quantity) {
+            	var totalProductPrice = parseFloat(product.product_price) * quantity;
+            	grandTotal += totalProductPrice;
+                totalQuantity += quantity;
+                table.append('<tr> \
+                                  <td><i onclick="add_to_cart(\'' + product.product_code + '\')" class="icon-plus"></i></td> \
+                                  <td>' + quantity + '</td> \
+                                  <td><i onclick="decrease_count(\'' + product.product_code + '\')" class="icon-minus"></i></td> \
+                                  <td><img width="40px" src="' + product.image + '"/></td> \
+                                  <td>' + product.product_name + '</td> \
+                                  <td>$' + parseFloat(totalProductPrice).toFixed(2) + '</td> \
+                                  <td><i onclick="del_from_cart(\'' + product.product_code + '\')" class="icon-trash"></i></td> \
+                              </tr>');
+            }
+		}
+        if (totalQuantity > 0) {
+        	jQuery('#checkout-area').show();
+        }
+        else {
+        	jQuery('#checkout-area').hide();
+        }
+        jQuery('#cart-total-amount').val(parseFloat(grandTotal).toFixed(2));
+    };
+    
+    function show_payment() {
+    	var div = jQuery('#checkout-form');
+    	var button = jQuery('#checkout-button');
+    	div.slideToggle("slow");
+        if (button.html() == 'Hide Checkout') {
+            button.html('Proceed To Checkout');
+            button.attr('class', 'btn btn-large btn-block btn-primary');
+        }
+        else {
+        	button.html('Hide Checkout');
+        	button.attr('class', 'btn btn-large btn-block');
+        }
+    };
+    
+    function search() {
+        var key = jQuery('.search-query').val().toLowerCase();
+        tempProducts = [];
+        jQuery('#shop-window').empty();
+        for(var i=0; i<products.length; i++) {
+        	var product = products[i];
+        	var name = product.product_name.toLowerCase();
+        	var seller = product.product_owner.toLowerCase();
+        	var desc = product.description.toLowerCase();
+            if ((name.indexOf(key) != -1) || (seller.indexOf(key) != -1) || (desc.indexOf(key) != -1)) {
+            	tempProducts.push(product);
+            };
+        }
+        main(tempProducts);
+    };
+    
+	function main(products) {
+    	for(var i=0; i<products.length; i++) {
+        	var product = products[i];
+            jQuery('#shop-window').append('<div class="product-image" data-code="' + product.product_code + '" data-name="' + product.product_name + '"><img src="'+ product.image + '"/></div>');
+            jQuery('#shop-window').append('<div class="product-info">  \
+                                               <h3 class="product-name"><a href="#">' + product.product_name + '</a></h3> \
+											   <h4 class="product-owner">by ' + product.product_owner + '</h4> \
+                                               <h4 class="price">$'+ product.product_price + '</h4>  \
+                                               <p>' + product.description + '</p> \
+										   </div> \
+										   <div class="product-add"><button onclick="add_to_cart(\'' + product.product_code + '\')" class="btn">Add To Cart</button></div> \
+										   <hr>');
+        };
+        jQuery(".product-image").draggable({ 
+    		scroll: false,
+    		revert: true,
+    		start: function(event, ui) {
+          		$(this).data("startingScrollTop", $(this).offsetParent().scrollTop());
+    		},    
+    		drag: function(event, ui) {
+        		var st = parseInt($(this).data("startingScrollTop"));
+        		ui.position.top -= $(this).offsetParent().scrollTop() - st;
+    		}
+        });
+        /* remove .size-zone in below line to disable invisible side-zone on the left of page*/ 
+        jQuery(".cart-zone, .side-zone").droppable({
+        	drop: function(e,u) { 
+        		alert(u.draggable.attr('data-name') + ' has been added to your cart!');
+        		add_to_cart(u.draggable.attr('data-code'));
+        	}
+        });
+	};
+    
+    function clear_error() {
+    	var div = jQuery(this).parent(".error")
+        div.removeClass('error');
+        div.find('span').html("");
+    };
+    
+    jQuery('input').keyup(clear_error);
+    jQuery('.search-query').keyup(search)
+    jQuery('#CardForm').submit(validate);
+    jQuery('#checkout-button').click(show_payment);
+    main(products);
+</script>
